@@ -398,5 +398,11 @@ app.post('/api/export-pdf', (req, res) => {
   doc.end();
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`SEO Analiz Araci calisiyor: http://localhost:${PORT}`));
+// Vercel için app'i dışa aktar
+module.exports = app;
+
+// Sadece yerelde çalışırken dinle
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => console.log(`SEO Analiz Aracı çalışıyor: http://localhost:${PORT}`));
+}
