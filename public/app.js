@@ -1,51 +1,36 @@
 // ============================================
-// SEO Analiz Aracı - Frontend Application
+// SEO Intelligence Engine — Frontend
 // ============================================
 
 let analysisData = null;
 
-// Form submit
 document.getElementById('analyze-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const url = document.getElementById('url-input').value.trim();
   const keyword = document.getElementById('keyword-input').value.trim();
   if (!url) return;
-
   const btn = document.getElementById('analyze-btn');
   const btnText = btn.querySelector('.btn-text');
   const btnLoader = btn.querySelector('.btn-loader');
   const errorBox = document.getElementById('error-box');
   const results = document.getElementById('results');
-
-  btn.disabled = true;
-  btnText.style.display = 'none';
-  btnLoader.style.display = 'flex';
-  errorBox.style.display = 'none';
-  results.style.display = 'none';
-
+  btn.disabled = true; btnText.style.display = 'none'; btnLoader.style.display = 'flex';
+  errorBox.style.display = 'none'; results.style.display = 'none';
   try {
-    const res = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, keyword })
-    });
+    const res = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, keyword }) });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Analiz başarısız');
+    if (!res.ok) throw new Error(data.error || 'Analysis failed');
     analysisData = data;
     renderResults(data);
     results.style.display = 'block';
     results.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) {
-    errorBox.textContent = '❌ ' + err.message;
-    errorBox.style.display = 'block';
+    errorBox.textContent = '❌ ' + err.message; errorBox.style.display = 'block';
   } finally {
-    btn.disabled = false;
-    btnText.style.display = 'inline';
-    btnLoader.style.display = 'none';
+    btn.disabled = false; btnText.style.display = 'inline'; btnLoader.style.display = 'none';
   }
 });
 
-// Nav buttons
 document.getElementById('results-nav').addEventListener('click', (e) => {
   if (!e.target.classList.contains('nav-btn')) return;
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -56,203 +41,282 @@ document.getElementById('results-nav').addEventListener('click', (e) => {
 
 function renderResults(d) {
   renderSummary(d);
+  renderOnSite(d);
+  renderOffSite(d);
+  renderSerp(d);
   renderKeyword(d);
-  renderOnPage(d);
-  renderTechnical(d);
   renderContentPlan(d);
-  renderCompetitorGap(d);
   renderActionPlan(d);
 }
 
-// 1. Summary
+// === 1. Executive Summary ===
 function renderSummary(d) {
-  // Score animation
   const circle = document.getElementById('score-circle');
   const scoreVal = document.getElementById('score-value');
   const offset = 534 - (534 * d.score / 100);
   setTimeout(() => {
     circle.style.strokeDashoffset = offset;
-    // Determine stroke color
-    const color = d.score >= 80 ? '#10b981' : d.score >= 60 ? '#f59e0b' : '#ef4444';
-    circle.style.stroke = color;
+    circle.style.stroke = d.score >= 80 ? '#10b981' : d.score >= 60 ? '#f59e0b' : '#ef4444';
   }, 100);
-  // Animate number
   animateNumber(scoreVal, 0, d.score, 1500);
 
-  document.getElementById('intent-value').textContent = d.searchIntent?.type || '—';
-  document.getElementById('wordcount-value').textContent = (d.content?.wordCount || 0).toLocaleString('tr-TR');
-  document.getElementById('images-value').textContent = `${d.images?.total || 0} (${d.images?.withAlt || 0} alt)`;
-  document.getElementById('links-value').textContent = `${d.links?.internal || 0} iç / ${d.links?.external || 0} dış`;
+  document.getElementById('intent-value').textContent = capitalize(d.searchIntent?.type || '—');
+  document.getElementById('wordcount-value').textContent = (d.content?.wordCount || 0).toLocaleString();
+  document.getElementById('images-value').textContent = `${d.images?.total || 0} (${d.images?.withAlt || 0} with alt)`;
+  document.getElementById('links-value').textContent = `${d.links?.internal || 0} int / ${d.links?.external || 0} ext`;
 
-  // Quick wins (top 3 non-critical recommendations)
-  const qwBox = document.getElementById('quick-wins');
-  const quickWins = (d.recommendations || []).filter(r => r.priority !== 'kritik').slice(0, 3);
-  qwBox.innerHTML = quickWins.length > 0 ? '<div style="font-size:0.85rem;font-weight:700;color:var(--success);margin-bottom:10px;">⚡ Hızlı Kazanımlar</div>' +
-    quickWins.map(q => `<div class="quick-win-item"><span class="qw-icon">✅</span><span>${q.text}</span></div>`).join('') : '';
+  // Sub-scores
+  const onSite = d.onSiteScore || 0;
+  const offSite = d.offSiteScore || 0;
+  const rankProb = d.serpIntelligence?.rankingProbability || 0;
+  document.getElementById('sub-scores').innerHTML = `
+    ${subScoreCard('On-Site Score', onSite, getScoreColor(onSite))}
+    ${subScoreCard('Off-Site Score', offSite, getScoreColor(offSite))}
+    ${subScoreCard('Ranking Probability', rankProb, getScoreColor(rankProb))}
+  `;
 
-  // Blockers
+  // Top blockers
+  const blockers = (d.issues || []).filter(i => i.severity === 'critical').slice(0, 3);
   const blkBox = document.getElementById('blockers');
-  const blockers = (d.issues || []).filter(i => i.severity === 'critical');
-  blkBox.innerHTML = blockers.length > 0 ? '<div style="font-size:0.85rem;font-weight:700;color:var(--danger);margin-bottom:10px;margin-top:16px;">🔥 Kritik Engeller</div>' +
+  blkBox.innerHTML = blockers.length > 0 ? '<div style="font-size:0.85rem;font-weight:700;color:var(--danger);margin-bottom:10px;margin-top:16px;">🔥 Top Ranking Blockers</div>' +
     blockers.map(b => `<div class="blocker-item"><span>🔥</span><span>${b.message}</span></div>`).join('') : '';
 }
 
-// 2. Keyword
+function subScoreCard(label, value, colorClass) {
+  const color = colorClass === 'good' ? 'var(--success)' : colorClass === 'mid' ? 'var(--warning)' : 'var(--danger)';
+  return `<div class="sub-score-card">
+    <div class="sub-score-label">${label}</div>
+    <div class="sub-score-value ${colorClass}">${value}</div>
+    <div class="sub-score-bar"><div class="sub-score-fill" style="width:${value}%;background:${color};"></div></div>
+  </div>`;
+}
+
+// === 2. On-Site SEO ===
+function renderOnSite(d) {
+  const titleStatus = !d.title?.exists ? 'bad' : (d.title.length >= 50 && d.title.length <= 60) ? 'good' : 'mid';
+  const metaStatus = !d.metaDescription?.exists ? 'bad' : (d.metaDescription.length >= 140 && d.metaDescription.length <= 160) ? 'good' : 'mid';
+
+  let html = `
+    <div class="detail-group"><div class="detail-group-title">📋 Technical SEO</div>
+      <div class="detail-row"><span class="detail-label">Title Tag</span><span class="detail-val neutral" style="max-width:55%;text-align:right;word-break:break-word;">${d.title?.text || '<em>Missing</em>'}</span></div>
+      <div class="detail-row"><span class="detail-label">Title Length</span><span class="detail-val ${titleStatus}">${d.title?.length || 0} chars ${titleStatus === 'good' ? '✓' : titleStatus === 'mid' ? '⚠️' : '✗'}</span></div>
+      <div class="detail-row"><span class="detail-label">Keyword in Title</span><span class="detail-val ${d.title?.keywordPresent ? 'good' : 'bad'}">${d.title?.keywordPresent ? 'Present ✓' : 'Missing ✗'}</span></div>
+      <div class="detail-row"><span class="detail-label">Meta Description</span><span class="detail-val neutral" style="max-width:55%;text-align:right;word-break:break-word;">${(d.metaDescription?.text || '<em>Missing</em>').substring(0, 80)}${(d.metaDescription?.text?.length || 0) > 80 ? '...' : ''}</span></div>
+      <div class="detail-row"><span class="detail-label">Meta Length</span><span class="detail-val ${metaStatus}">${d.metaDescription?.length || 0} chars</span></div>
+      <div class="detail-row"><span class="detail-label">H1 Count</span><span class="detail-val ${d.headings?.h1Count === 1 ? 'good' : 'bad'}">${d.headings?.h1Count || 0} ${d.headings?.h1Count === 1 ? '✓' : '✗'}</span></div>
+      <div class="detail-row"><span class="detail-label">Heading Hierarchy</span><span class="detail-val ${d.headings?.hasProperHierarchy ? 'good' : 'mid'}">${d.headings?.hasProperHierarchy ? 'Correct ✓' : 'Inconsistent ⚠️'}</span></div>
+      <div class="detail-row"><span class="detail-label">URL Structure</span><span class="detail-val ${d.url?.clean ? 'good' : 'mid'}">${d.url?.clean ? 'Clean ✓' : 'Needs improvement ⚠️'}</span></div>
+      <div class="detail-row"><span class="detail-label">HTTPS</span><span class="detail-val ${d.url?.hasHttps ? 'good' : 'bad'}">${d.url?.hasHttps ? 'Enabled ✓' : 'Not enabled ✗'}</span></div>
+      <div class="detail-row"><span class="detail-label">Canonical</span><span class="detail-val ${d.technical?.hasCanonical ? 'good' : 'mid'}">${d.technical?.hasCanonical ? 'Set ✓' : 'Missing ⚠️'}</span></div>
+      <div class="detail-row"><span class="detail-label">Indexing</span><span class="detail-val ${!d.technical?.isNoindex ? 'good' : 'bad'}">${!d.technical?.isNoindex ? 'Indexable ✓' : 'NOINDEX ✗'}</span></div>
+    </div>`;
+
+  // Heading tags display
+  ['h1','h2','h3'].forEach(tag => {
+    if (d.headings?.[tag]?.length > 0) {
+      html += `<div style="margin:8px 0 4px;font-size:0.8rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;">${tag.toUpperCase()} Tags</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;">${d.headings[tag].slice(0, 8).map(h => `<span class="heading-tag">${h.substring(0, 60)}</span>`).join('')}</div>`;
+    }
+  });
+
+  html += `<div class="detail-group"><div class="detail-group-title">✍️ Content SEO</div>
+    <div class="detail-row"><span class="detail-label">Word Count</span><span class="detail-val ${d.content?.wordCount >= 1000 ? 'good' : d.content?.wordCount >= 300 ? 'mid' : 'bad'}">${(d.content?.wordCount || 0).toLocaleString()}</span></div>
+    <div class="detail-row"><span class="detail-label">Paragraphs</span><span class="detail-val neutral">${d.content?.paragraphs || 0}</span></div>
+    <div class="detail-row"><span class="detail-label">Keyword Density</span><span class="detail-val neutral">${d.content?.keywordDensity || 0}%</span></div>
+    <div class="detail-row"><span class="detail-label">Keyword Quality</span><span class="detail-val ${d.content?.keywordQuality === 'natural' ? 'good' : d.content?.keywordQuality === 'overstuffed' ? 'bad' : 'mid'}">${capitalize(d.content?.keywordQuality || 'N/A')}</span></div>
+  </div>`;
+
+  html += `<div class="detail-group"><div class="detail-group-title">⚡ UX & Engagement Signals</div>
+    <div class="detail-row"><span class="detail-label">Images</span><span class="detail-val ${d.images?.withoutAlt === 0 ? 'good' : 'mid'}">${d.images?.total || 0} total, ${d.images?.withoutAlt || 0} missing alt</span></div>
+    <div class="detail-row"><span class="detail-label">Internal Links</span><span class="detail-val ${d.links?.internal >= 5 ? 'good' : d.links?.internal >= 2 ? 'mid' : 'bad'}">${d.links?.internal || 0}</span></div>
+    <div class="detail-row"><span class="detail-label">External Links</span><span class="detail-val neutral">${d.links?.external || 0}</span></div>
+    <div class="detail-row"><span class="detail-label">URL Depth</span><span class="detail-val ${(d.url?.depth || 0) <= 3 ? 'good' : 'mid'}">${d.url?.depth || 0} levels</span></div>
+  </div>`;
+
+  document.getElementById('onsite-details').innerHTML = html;
+
+  // Issues breakdown
+  const critical = (d.issues || []).filter(i => i.severity === 'critical');
+  const warnings = (d.issues || []).filter(i => i.severity === 'warning');
+  const infos = (d.issues || []).filter(i => i.severity === 'info');
+  let issuesHtml = '<div class="issues-grid">';
+  issuesHtml += issueGroup('Critical', 'critical', critical);
+  issuesHtml += issueGroup('Warning', 'warning', warnings);
+  issuesHtml += issueGroup('Info', 'info', infos);
+  issuesHtml += '</div>';
+  document.getElementById('issues-breakdown').innerHTML = issuesHtml;
+}
+
+function issueGroup(title, severity, items) {
+  return `<div class="issue-group">
+    <div class="issue-group-title ${severity}"><span class="issue-count ${severity}">${items.length}</span> ${title}</div>
+    ${items.length > 0 ? items.map(i => `<div class="issue-item">${i.message}</div>`).join('') : '<div class="issue-item" style="color:var(--success);">No issues ✓</div>'}
+  </div>`;
+}
+
+// === 3. Off-Site SEO ===
+function renderOffSite(d) {
+  const off = d.offSiteAnalysis || {};
+  const signals = d.offSiteSignals || [];
+  let html = '<div class="offsite-grid">';
+
+  // Backlink card
+  html += `<div class="offsite-card card-backlinks">
+    <div class="offsite-card-title">🔗 Backlink Strength (Estimated)</div>
+    <div class="offsite-card-value"><span class="strength-badge ${off.backlinkEstimate?.strength || 'low'}">${capitalize(off.backlinkEstimate?.strength || 'low')}</span></div>
+    <p style="font-size:0.8rem;color:var(--text-dim);margin-top:8px;">${off.backlinkEstimate?.description || 'No data available'}</p>
+  </div>`;
+
+  // Domain Authority card
+  html += `<div class="offsite-card card-authority">
+    <div class="offsite-card-title">🏛️ Domain Authority (Estimated)</div>
+    <div class="offsite-card-value"><span class="strength-badge ${off.domainAuthority?.estimate || 'low'}">${capitalize(off.domainAuthority?.estimate || 'low')}</span></div>
+    <div style="margin-top:10px;">${(off.domainAuthority?.signals || []).map(s => `<span style="display:inline-block;padding:3px 10px;margin:2px;font-size:0.73rem;background:rgba(139,92,246,0.1);border-radius:12px;color:#c4b5fd;">${s}</span>`).join('')}</div>
+  </div>`;
+
+  // Social readiness card
+  html += `<div class="offsite-card card-social">
+    <div class="offsite-card-title">📢 Content Distribution</div>
+    <div class="offsite-card-value"><span class="strength-badge ${off.contentDistribution?.shareability || 'low'}">${capitalize(off.contentDistribution?.shareability || 'low')} Shareability</span></div>
+    <div style="margin-top:8px;font-size:0.8rem;color:var(--text-dim);">
+      <div>Open Graph: ${off.contentDistribution?.socialReadiness ? '<span style="color:var(--success)">Ready ✓</span>' : '<span style="color:var(--danger)">Missing ✗</span>'}</div>
+      <div>Twitter Card: ${off.contentDistribution?.hasTwitterCard ? '<span style="color:var(--success)">Ready ✓</span>' : '<span style="color:var(--danger)">Missing ✗</span>'}</div>
+    </div>
+  </div>`;
+
+  // Competition card
+  html += `<div class="offsite-card card-competition">
+    <div class="offsite-card-title">🏁 Competitor Authority Gap</div>
+    <div style="font-size:0.8rem;color:var(--text-dim);">${(off.competitorAuthorityGap || []).slice(0, 3).map(g => `<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03);">• ${g}</div>`).join('')}</div>
+  </div>`;
+
+  html += '</div>';
+
+  // Signal list
+  if (signals.length > 0) {
+    html += '<div class="detail-group"><div class="detail-group-title">📡 Authority Signals Analysis</div><div class="signal-list">';
+    signals.forEach(s => {
+      html += `<div class="signal-item"><div class="signal-dot ${s.type}"></div><span>${s.text}</span></div>`;
+    });
+    html += '</div></div>';
+  }
+
+  document.getElementById('offsite-details').innerHTML = html;
+}
+
+// === 4. SERP Intelligence ===
+function renderSerp(d) {
+  const serp = d.serpIntelligence || {};
+  const intent = serp.intentAnalysis || {};
+  const expected = serp.expectedStructure || {};
+
+  let html = '<div class="serp-grid">';
+
+  // Intent card
+  html += `<div class="serp-card">
+    <div class="serp-card-title">🎯 Search Intent Classification</div>
+    <div style="margin-bottom:12px;"><span class="intent-badge ${intent.type || 'informational'}">${capitalize(intent.type || 'informational')}</span>
+    <span style="font-size:0.75rem;color:var(--text-muted);margin-left:8px;">Confidence: ${capitalize(intent.confidence || 'low')}</span></div>
+    <p style="font-size:0.8rem;color:var(--text-dim);">${intent.description || ''}</p>
+  </div>`;
+
+  // Ranking probability
+  html += `<div class="serp-card">
+    <div class="serp-card-title">📈 Top 10 Ranking Probability</div>
+    <div class="ranking-prob">
+      <div class="ranking-prob-value" style="color:${getScoreHex(serp.rankingProbability || 0)}">${serp.rankingProbability || 0}%</div>
+      <div class="ranking-prob-label">Estimated probability</div>
+    </div>
+    <div class="sub-score-bar" style="margin-top:10px;"><div class="sub-score-fill" style="width:${serp.rankingProbability || 0}%;background:${getScoreHex(serp.rankingProbability || 0)};"></div></div>
+  </div>`;
+
+  html += '</div>';
+
+  // Expected content structure
+  if (expected.headings) {
+    html += `<div class="detail-group"><div class="detail-group-title">📝 Expected Top 10 Content Structure</div>
+      <div class="detail-row"><span class="detail-label">Format</span><span class="detail-val neutral">${expected.format || 'N/A'}</span></div>
+      <div class="detail-row"><span class="detail-label">Expected Word Count</span><span class="detail-val neutral">${expected.wordCount || 'N/A'}</span></div>
+      <div style="margin-top:12px;font-size:0.8rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;">Typical Headings</div>
+      <div class="expected-list" style="margin-top:8px;">${expected.headings.map(h => `<div class="expected-item">${h}</div>`).join('')}</div>`;
+    if (expected.features) {
+      html += `<div style="margin-top:12px;font-size:0.8rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;">Expected Features</div>
+      <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">${expected.features.map(f => `<span style="padding:4px 12px;font-size:0.75rem;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);border-radius:14px;color:var(--success);">${f}</span>`).join('')}</div>`;
+    }
+    html += '</div>';
+  }
+
+  // Missing for Top 10
+  if (serp.missingForTop10?.length > 0) {
+    html += `<div class="detail-group"><div class="detail-group-title">⚠️ Missing for Top 10 Ranking</div>
+      <div class="plan-list">${serp.missingForTop10.map(m => `<div class="plan-item" style="border-left:3px solid var(--warning);padding-left:14px;">→ ${m}</div>`).join('')}</div>
+    </div>`;
+  }
+
+  document.getElementById('serp-details').innerHTML = html;
+}
+
+// === 5. Keyword & Intent ===
 function renderKeyword(d) {
   const kw = document.getElementById('keyword-input').value.trim();
   const items = [
-    { label: 'Title Tag', present: d.title?.keywordPresent, detail: d.title?.text?.substring(0, 50) || '—' },
+    { label: 'Title Tag', present: d.title?.keywordPresent, detail: (d.title?.text || '—').substring(0, 50) },
     { label: 'Meta Description', present: d.metaDescription?.keywordPresent, detail: (d.metaDescription?.text || '—').substring(0, 50) },
-    { label: 'H1 Başlığı', present: d.headings?.h1KeywordPresent, detail: (d.headings?.h1?.[0] || '—').substring(0, 50) },
-    { label: 'H2 Başlıkları', present: d.headings?.h2KeywordPresent, detail: `${d.headings?.h2Count || 0} adet H2` },
-    { label: 'URL Yapısı', present: d.url?.pathname?.toLowerCase().includes(kw.toLowerCase()), detail: d.url?.pathname || '—' },
-    { label: 'Sayfa İçeriği', present: d.content?.keywordCount > 0, detail: `${d.content?.keywordCount || 0} kez kullanılmış` },
+    { label: 'H1 Heading', present: d.headings?.h1KeywordPresent, detail: (d.headings?.h1?.[0] || '—').substring(0, 50) },
+    { label: 'H2 Headings', present: d.headings?.h2KeywordPresent, detail: `${d.headings?.h2Count || 0} H2 tags` },
+    { label: 'URL Path', present: kw && d.url?.pathname?.toLowerCase().includes(kw.toLowerCase()), detail: d.url?.pathname || '—' },
+    { label: 'Page Content', present: d.content?.keywordCount > 0, detail: `Found ${d.content?.keywordCount || 0} times` },
   ];
   document.getElementById('keyword-checklist').innerHTML = items.map(item => `
     <div class="check-item">
       <div class="check-status ${item.present ? 'pass' : 'fail'}">${item.present ? '✓' : '✗'}</div>
       <span class="check-label">${item.label}</span>
       <span class="check-detail">${item.detail}</span>
-    </div>
-  `).join('');
+    </div>`).join('');
 
-  // Quality
-  const quality = d.content?.keywordQuality || 'yok';
-  const qualityColors = { 'doğal': 'var(--success)', 'optimize': 'var(--primary)', 'düşük': 'var(--warning)', 'aşırı doldurulmuş': 'var(--danger)', 'yok': 'var(--text-muted)' };
+  const quality = d.content?.keywordQuality || 'none';
+  const qualityColors = { 'natural': 'var(--success)', 'optimized': 'var(--primary)', 'low': 'var(--warning)', 'overstuffed': 'var(--danger)', 'none': 'var(--text-muted)' };
   const density = d.content?.keywordDensity || 0;
   const fillW = Math.min(density * 20, 100);
   document.getElementById('keyword-quality').innerHTML = `
-    <div class="quality-title">Anahtar Kelime Kullanım Kalitesi</div>
+    <div class="quality-title">Keyword Usage Quality</div>
     <div class="density-bar-wrapper">
       <div class="density-bar"><div class="density-fill" style="width:${fillW}%;background:${qualityColors[quality] || 'var(--primary)'}"></div></div>
-      <div class="density-value">%${density}</div>
+      <div class="density-value">${density}%</div>
     </div>
     <div style="font-size:0.85rem;color:${qualityColors[quality]};font-weight:600;margin-top:8px;">
-      Durum: ${quality.charAt(0).toUpperCase() + quality.slice(1)}
-      ${quality === 'aşırı doldurulmuş' ? ' ⚠️ Anahtar kelime dolgulama riski!' : ''}
-      ${quality === 'doğal' ? ' ✅ İdeal aralıkta' : ''}
-    </div>
-  `;
-}
-
-// 3. On-Page
-function renderOnPage(d) {
-  const titleStatus = !d.title?.exists ? 'bad' : (d.title.length >= 50 && d.title.length <= 60) ? 'good' : 'mid';
-  const metaStatus = !d.metaDescription?.exists ? 'bad' : (d.metaDescription.length >= 140 && d.metaDescription.length <= 160) ? 'good' : 'mid';
-
-  let html = `
-    <div class="detail-group">
-      <div class="detail-group-title">Title Tag</div>
-      <div class="detail-row"><span class="detail-label">İçerik</span><span class="detail-val neutral" style="max-width:60%;text-align:right;word-break:break-word;">${d.title?.text || '<em>Yok</em>'}</span></div>
-      <div class="detail-row"><span class="detail-label">Uzunluk</span><span class="detail-val ${titleStatus}">${d.title?.length || 0} karakter ${titleStatus === 'good' ? '✓' : titleStatus === 'mid' ? '⚠️' : '✗'}</span></div>
-      <div class="detail-row"><span class="detail-label">Anahtar Kelime</span><span class="detail-val ${d.title?.keywordPresent ? 'good' : 'bad'}">${d.title?.keywordPresent ? 'Var ✓' : 'Yok ✗'}</span></div>
-    </div>
-    <div class="detail-group">
-      <div class="detail-group-title">Meta Description</div>
-      <div class="detail-row"><span class="detail-label">İçerik</span><span class="detail-val neutral" style="max-width:60%;text-align:right;word-break:break-word;">${(d.metaDescription?.text || '<em>Yok</em>').substring(0, 100)}${(d.metaDescription?.text?.length || 0) > 100 ? '...' : ''}</span></div>
-      <div class="detail-row"><span class="detail-label">Uzunluk</span><span class="detail-val ${metaStatus}">${d.metaDescription?.length || 0} karakter</span></div>
-      <div class="detail-row"><span class="detail-label">Anahtar Kelime</span><span class="detail-val ${d.metaDescription?.keywordPresent ? 'good' : 'bad'}">${d.metaDescription?.keywordPresent ? 'Var ✓' : 'Yok ✗'}</span></div>
-    </div>
-    <div class="detail-group">
-      <div class="detail-group-title">Başlık Yapısı (Headings)</div>
-      <div class="detail-row"><span class="detail-label">H1 Sayısı</span><span class="detail-val ${d.headings?.h1Count === 1 ? 'good' : 'bad'}">${d.headings?.h1Count || 0} ${d.headings?.h1Count === 1 ? '✓' : '✗'}</span></div>
-      <div class="detail-row"><span class="detail-label">Hiyerarşi</span><span class="detail-val ${d.headings?.hasProperHierarchy ? 'good' : 'mid'}">${d.headings?.hasProperHierarchy ? 'Düzgün ✓' : 'Düzensiz ⚠️'}</span></div>
-  `;
-  ['h1','h2','h3'].forEach(tag => {
-    if (d.headings?.[tag]?.length > 0) {
-      html += `<div style="margin:8px 0 4px;font-size:0.8rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;">${tag.toUpperCase()} Etiketleri</div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px;">${d.headings[tag].slice(0, 8).map(h => `<span class="heading-tag">${h.substring(0, 60)}</span>`).join('')}</div>`;
-    }
-  });
-  html += `</div>
-    <div class="detail-group">
-      <div class="detail-group-title">İçerik & Bağlantılar</div>
-      <div class="detail-row"><span class="detail-label">Kelime Sayısı</span><span class="detail-val ${d.content?.wordCount >= 1000 ? 'good' : d.content?.wordCount >= 300 ? 'mid' : 'bad'}">${(d.content?.wordCount || 0).toLocaleString('tr-TR')}</span></div>
-      <div class="detail-row"><span class="detail-label">Paragraf Sayısı</span><span class="detail-val neutral">${d.content?.paragraphs || 0}</span></div>
-      <div class="detail-row"><span class="detail-label">Görseller</span><span class="detail-val ${d.images?.withoutAlt === 0 ? 'good' : 'mid'}">${d.images?.total || 0} toplam, ${d.images?.withoutAlt || 0} alt eksik</span></div>
-      <div class="detail-row"><span class="detail-label">İç Bağlantılar</span><span class="detail-val ${d.links?.internal >= 5 ? 'good' : d.links?.internal >= 2 ? 'mid' : 'bad'}">${d.links?.internal || 0}</span></div>
-      <div class="detail-row"><span class="detail-label">Dış Bağlantılar</span><span class="detail-val neutral">${d.links?.external || 0}</span></div>
+      Status: ${capitalize(quality)}
+      ${quality === 'overstuffed' ? ' ⚠️ Keyword stuffing risk!' : ''}
+      ${quality === 'natural' ? ' ✅ Ideal range' : ''}
     </div>`;
-  document.getElementById('onpage-details').innerHTML = html;
 }
 
-// 4. Technical
-function renderTechnical(d) {
-  const items = [
-    { label: 'HTTPS', val: d.url?.hasHttps, good: 'Aktif ✓', bad: 'Yok ✗' },
-    { label: 'Canonical URL', val: d.technical?.hasCanonical, good: d.technical?.canonicalUrl?.substring(0, 50) || 'Var ✓', bad: 'Tanımlanmamış ✗' },
-    { label: 'Schema.org', val: d.technical?.hasSchema, good: (d.technical?.schemaTypes || []).join(', ') || 'Var ✓', bad: 'Yok ✗' },
-    { label: 'Open Graph', val: d.technical?.hasOG, good: 'Var ✓', bad: 'Yok ✗' },
-    { label: 'Robots Meta', val: !d.technical?.isNoindex, good: 'İndexlenebilir ✓', bad: 'NOINDEX ✗ KRİTİK!' },
-    { label: 'Nofollow', val: !d.technical?.isNofollow, good: 'Yok ✓', bad: 'Nofollow aktif ⚠️' },
-  ];
-  let html = '<div class="detail-group"><div class="detail-group-title">İndexlenebilirlik & Güvenlik</div>';
-  items.forEach(item => {
-    html += `<div class="detail-row"><span class="detail-label">${item.label}</span><span class="detail-val ${item.val ? 'good' : 'bad'}">${item.val ? item.good : item.bad}</span></div>`;
-  });
-  html += '</div>';
-
-  // URL Structure
-  html += `<div class="detail-group"><div class="detail-group-title">URL Yapısı</div>
-    <div class="detail-row"><span class="detail-label">Protokol</span><span class="detail-val ${d.url?.hasHttps ? 'good' : 'bad'}">${d.url?.protocol || '—'}</span></div>
-    <div class="detail-row"><span class="detail-label">Alan Adı</span><span class="detail-val neutral">${d.url?.hostname || '—'}</span></div>
-    <div class="detail-row"><span class="detail-label">Yol</span><span class="detail-val neutral">${d.url?.pathname || '—'}</span></div>
-    <div class="detail-row"><span class="detail-label">URL Temizliği</span><span class="detail-val ${d.url?.clean ? 'good' : 'mid'}">${d.url?.clean ? 'Temiz ✓' : 'İyileştirilebilir ⚠️'}</span></div>
-    <div class="detail-row"><span class="detail-label">Derinlik</span><span class="detail-val ${d.url?.depth <= 3 ? 'good' : 'mid'}">${d.url?.depth || 0} seviye</span></div>
-  </div>`;
-
-  // OG Details
-  if (d.technical?.hasOG) {
-    html += `<div class="detail-group"><div class="detail-group-title">Open Graph Detayları</div>
-      <div class="detail-row"><span class="detail-label">OG Title</span><span class="detail-val neutral" style="max-width:60%;text-align:right;word-break:break-word;">${d.technical?.ogTitle || '—'}</span></div>
-      <div class="detail-row"><span class="detail-label">OG Description</span><span class="detail-val neutral" style="max-width:60%;text-align:right;word-break:break-word;">${(d.technical?.ogDesc || '—').substring(0, 80)}</span></div>
-      <div class="detail-row"><span class="detail-label">OG Image</span><span class="detail-val ${d.technical?.ogImage ? 'good' : 'bad'}">${d.technical?.ogImage ? 'Var ✓' : 'Yok ✗'}</span></div>
-    </div>`;
-  }
-  document.getElementById('technical-details').innerHTML = html;
-}
-
-// 5. Content Plan
+// === 6. Content Plan ===
 function renderContentPlan(d) {
   const plan = d.contentPlan;
-  if (!plan) { document.getElementById('content-plan').innerHTML = '<p style="color:var(--text-muted)">Veri yok</p>'; return; }
+  if (!plan) { document.getElementById('content-plan').innerHTML = '<p style="color:var(--text-muted)">No data available</p>'; return; }
   let html = '';
-  if (plan.missingSections?.length > 0) {
-    html += `<div class="plan-section"><div class="plan-section-title">📌 Eksik Bölümler</div><div class="plan-list">${plan.missingSections.map(s => `<div class="plan-item">+ ${s}</div>`).join('')}</div></div>`;
-  }
-  if (plan.expandSections?.length > 0) {
-    html += `<div class="plan-section"><div class="plan-section-title">📈 Genişletilmesi Gereken Alanlar</div><div class="plan-list">${plan.expandSections.map(s => `<div class="plan-item">↗ ${s}</div>`).join('')}</div></div>`;
-  }
-  if (plan.suggestedHeadings?.length > 0) {
-    html += `<div class="plan-section"><div class="plan-section-title">💡 Önerilen Başlıklar</div><div class="plan-list">${plan.suggestedHeadings.map(h => `<div class="plan-item">&lt;H2&gt; ${h}</div>`).join('')}</div></div>`;
-  }
-  if (plan.lsiKeywords?.length > 0) {
-    html += `<div class="plan-section"><div class="plan-section-title">🔗 Semantik Anahtar Kelimeler (LSI)</div><div class="lsi-grid">${plan.lsiKeywords.map(k => `<span class="lsi-tag">${k}</span>`).join('')}</div></div>`;
-  }
-  document.getElementById('content-plan').innerHTML = html || '<p style="color:var(--text-muted)">Anahtar kelime girilmedi.</p>';
+  if (plan.missingSections?.length > 0) html += `<div class="plan-section"><div class="plan-section-title">📌 Missing Sections</div><div class="plan-list">${plan.missingSections.map(s => `<div class="plan-item">+ ${s}</div>`).join('')}</div></div>`;
+  if (plan.expandSections?.length > 0) html += `<div class="plan-section"><div class="plan-section-title">📈 Sections to Expand</div><div class="plan-list">${plan.expandSections.map(s => `<div class="plan-item">↗ ${s}</div>`).join('')}</div></div>`;
+  if (plan.suggestedHeadings?.length > 0) html += `<div class="plan-section"><div class="plan-section-title">💡 Suggested Headings</div><div class="plan-list">${plan.suggestedHeadings.map(h => `<div class="plan-item">&lt;H2&gt; ${h}</div>`).join('')}</div></div>`;
+  if (plan.lsiKeywords?.length > 0) html += `<div class="plan-section"><div class="plan-section-title">🔗 Semantic Keywords (LSI)</div><div class="lsi-grid">${plan.lsiKeywords.map(k => `<span class="lsi-tag">${k}</span>`).join('')}</div></div>`;
+  document.getElementById('content-plan').innerHTML = html || '<p style="color:var(--text-muted)">Enter a keyword to see content suggestions.</p>';
 }
 
-// 6. Competitor Gap
-function renderCompetitorGap(d) {
-  const gaps = d.competitorGap || [];
-  document.getElementById('competitor-gaps').innerHTML = gaps.length > 0
-    ? gaps.map(g => `<div class="gap-item"><span class="gap-icon">🔸</span><span>${g}</span></div>`).join('')
-    : '<p style="color:var(--text-muted)">Veri yok</p>';
-}
-
-// 7. Action Plan
+// === 7. Action Plan ===
 function renderActionPlan(d) {
   const steps = d.actionPlan || [];
   document.getElementById('action-plan').innerHTML = steps.length > 0
     ? steps.map(step => `
       <div class="action-group">
         <div class="action-group-header"><span>${step.icon}</span><span>${step.level}</span></div>
+        <div class="action-group-desc">${step.description || ''}</div>
         ${step.items.map((item, i) => `<div class="action-item"><div class="action-number">${i + 1}</div><span>${item}</span></div>`).join('')}
       </div>`).join('')
-    : '<p style="color:var(--text-muted)">Sorun bulunamadı. Tebrikler! 🎉</p>';
+    : '<p style="color:var(--text-muted)">No issues found. Congratulations! 🎉</p>';
 }
 
-// Animate number
+// === Utilities ===
 function animateNumber(el, start, end, duration) {
   const startTime = performance.now();
   function update(now) {
@@ -265,22 +329,18 @@ function animateNumber(el, start, end, duration) {
   requestAnimationFrame(update);
 }
 
-// PDF Export
+function capitalize(str) { if (!str) return ''; return str.charAt(0).toUpperCase() + str.slice(1); }
+function getScoreColor(score) { return score >= 70 ? 'good' : score >= 40 ? 'mid' : 'bad'; }
+function getScoreHex(score) { return score >= 70 ? '#10b981' : score >= 40 ? '#f59e0b' : '#ef4444'; }
+
 async function exportPDF() {
   if (!analysisData) return;
   try {
-    const res = await fetch('/api/export-pdf', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(analysisData)
-    });
-    if (!res.ok) throw new Error('PDF oluşturulamadı');
+    const res = await fetch('/api/export-pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(analysisData) });
+    if (!res.ok) throw new Error('Failed to generate PDF');
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'seo-rapor.pdf'; a.click();
+    const a = document.createElement('a'); a.href = url; a.download = 'seo-report.pdf'; a.click();
     URL.revokeObjectURL(url);
-  } catch (err) {
-    alert('PDF indirme hatası: ' + err.message);
-  }
+  } catch (err) { alert('PDF download error: ' + err.message); }
 }
